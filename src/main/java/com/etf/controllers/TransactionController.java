@@ -3,10 +3,13 @@ package com.etf.controllers;
 import com.etf.base.BaseController;
 import com.etf.entities.DTO.TransactionDTO;
 import com.etf.entities.DTO.TransactionLogDTO;
-import com.etf.listeners.AnalyticsService;
+import com.etf.entities.DTO.TransactionStatusDTO;
 import com.etf.services.KafkaProducerService;
+import com.etf.services.ProcessedTransactionService;
 import com.etf.services.transaction.TransactionService;
 import com.etf.services.transaction_log.TransactionLogService;
+import com.etf.services.transaction_status.TransactionStatusService;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -23,29 +26,32 @@ import java.util.Random;
 public class TransactionController extends BaseController<Integer, TransactionDTO> {
 
     private final KafkaProducerService kafkaProducerService;
-    private final AnalyticsService analyticsService;
+    private final ProcessedTransactionService processedTransactionService;
     private final TransactionLogService transactionLogService;
+    private final TransactionStatusService transactionStatusService;
 
     public TransactionController(TransactionService transactionService,
                                  KafkaProducerService kafkaProducerService,
-                                 AnalyticsService analyticsService,
-                                 TransactionLogService transactionLogService) {
+                                 ProcessedTransactionService processedTransactionService,
+                                 TransactionLogService transactionLogService, TransactionStatusService transactionStatusService) {
         super(transactionService, TransactionDTO.class);
         this.kafkaProducerService = kafkaProducerService;
-        this.analyticsService = analyticsService;
+        this.processedTransactionService = processedTransactionService;
         this.transactionLogService = transactionLogService;
+        this.transactionStatusService = transactionStatusService;
     }
 
     @Override
-    public TransactionDTO insert(@RequestBody TransactionDTO transactionDTO) throws InterruptedException {
+    public TransactionDTO insert(@RequestBody TransactionDTO transactionDTO) throws InterruptedException, JsonProcessingException {
+
         DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         transactionDTO = super.insert(transactionDTO);
-        createNewTransactionLog(transactionDTO);
-        kafkaProducerService.sendMessage("Transaction", transactionDTO);
-        for (int i = 0; i < 250; i++) {
+        transactionDTO.setOrigin(getStatusOrigin(createNewTransactionLog(transactionDTO)));
+        kafkaProducerService.sendMessage("Transaction","global", transactionDTO);
+
+        for (int i = 0; i < 20; i++) {
             int minValue = Integer.parseInt(System.getProperty("application.lower-limit", "-1000"));
             int maxValue = Integer.parseInt(System.getProperty("application.upper-limit", "1000"));
-            System.out.println(minValue + " " + maxValue);
             TransactionDTO transactionDTO1 = new TransactionDTO();
             transactionDTO1.setUserId(3);
             transactionDTO1.setFromAccountId(5);
@@ -54,10 +60,11 @@ public class TransactionController extends BaseController<Integer, TransactionDT
             String randomDate = generateRandomTimestamp(dateTimeFormatter);
             transactionDTO1.setCreatedDate(Timestamp.valueOf(randomDate));
             transactionDTO1 = super.insert(transactionDTO1);
-            createNewTransactionLog(transactionDTO1);
-            kafkaProducerService.sendMessage("Transaction", transactionDTO1);
+            transactionDTO1.setOrigin(getStatusOrigin(createNewTransactionLog(transactionDTO)));
+            kafkaProducerService.sendMessage("Transaction","global", transactionDTO1);
             Thread.sleep(700);
         }
+
         return transactionDTO;
     }
 
@@ -74,18 +81,24 @@ public class TransactionController extends BaseController<Integer, TransactionDT
         return randomDateTime.format(formatter);
     }
 
-    private void createNewTransactionLog(TransactionDTO transactionDTO){
+    private TransactionLogDTO createNewTransactionLog(TransactionDTO transactionDTO){
         TransactionLogDTO transactionLogDTO = new TransactionLogDTO();
         transactionLogDTO.setTransactionId(transactionDTO.getId());
         transactionLogDTO.setLogTime(Timestamp.from(Instant.now()));
         transactionLogDTO.setStatusId(new Random().nextInt(1,5));
         transactionLogDTO.setUpdatedByWorkerId(1);
-        transactionLogService.insert(transactionLogDTO, TransactionLogDTO.class);
-        kafkaProducerService.sendMessage("TransactionLog", transactionLogDTO);
+        transactionLogDTO = transactionLogService.insert(transactionLogDTO, TransactionLogDTO.class);
+        kafkaProducerService.sendMessage("TransactionLog", "global", transactionLogDTO);
+        return transactionLogDTO;
     }
 
     @GetMapping("/sse")
     public SseEmitter streamTransactionEvents() {
-        return analyticsService.addTransactionEmitter();
+        return processedTransactionService.addTransactionEmitter();
+    }
+
+
+    private String getStatusOrigin(TransactionLogDTO transactionStatusDTO) {
+        return transactionStatusService.findByID(transactionStatusDTO.getStatusId(), TransactionStatusDTO.class).getCode();
     }
 }

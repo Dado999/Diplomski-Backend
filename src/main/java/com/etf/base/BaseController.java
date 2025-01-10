@@ -1,5 +1,6 @@
 package com.etf.base;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.Data;
 import org.springframework.http.HttpStatus;
@@ -30,7 +31,7 @@ public abstract class BaseController<ID extends Serializable, DTO> {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public DTO insert(@RequestBody DTO object) throws EntityNotFoundException, InterruptedException { return baseService.insert(object,dtoClass); }
+    public DTO insert(@RequestBody DTO object) throws EntityNotFoundException, InterruptedException, JsonProcessingException { return baseService.insert(object,dtoClass); }
 
     @PutMapping("/{id}")
     public DTO update(@PathVariable ID id, @RequestBody DTO object) { return baseService.update(id,object,dtoClass); }
