@@ -12,8 +12,8 @@ import java.util.List;
 @Data
 public abstract class BaseController<ID extends Serializable, DTO> {
 
-    private final Class<DTO> dtoClass;
-    private final BaseService<ID> baseService;
+    public final Class<DTO> dtoClass;
+    public final BaseService<ID> baseService;
 
     public BaseController(BaseService<ID> baseService, Class<DTO> dtoClass) {
         this.dtoClass = dtoClass;

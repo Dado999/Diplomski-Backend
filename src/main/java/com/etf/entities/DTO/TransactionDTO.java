@@ -20,4 +20,5 @@ public class TransactionDTO implements Serializable {
     private Integer toAccountId;
     private BigDecimal amount;
     private String origin = null;
+    private Long beginningTimestamp;
 }
